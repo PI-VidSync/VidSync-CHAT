@@ -27,15 +27,13 @@ io.listen(port);
 console.log(`Chat socket server is running on port ${port}`);
 console.log(`Allowed origins: ${corsOrigins.join(", ")}`);
 
-type OnlineUser = { socketId: string; userId: string; name?: string };
+type OnlineUser = { socketId: string; userId: string};
 
 type ChatMessagePayload = {
   userId?: string;
   message?: string;
   timestamp?: string;
   clientId?: string;
-  // optional display name fields
-  name?: string;
   displayName?: string;
 };
 
@@ -44,6 +42,9 @@ let onlineUsers: OnlineUser[] = [];
 // new: track users per meeting room
 const roomUsers: Record<string, OnlineUser[]> = {};
 
+/**
+ * Socket.io connection handling
+ */
 io.on("connection", (socket: Socket) => {
   // register connection with empty userId until client announces
   onlineUsers.push({ socketId: socket.id, userId: "" });
@@ -53,52 +54,45 @@ io.on("connection", (socket: Socket) => {
   // join specific meeting room
   socket.on("joinRoom", (roomRaw: any, userPayload: any) => {
     const room = (roomRaw ?? "").toString().trim();
-    console.log(`joinRoom received from socket ${socket.id} -> room="${roomRaw}" => trimmed="${room}"`);
+    //console.log(`joinRoom received from socket ${socket.id} -> room="${roomRaw}" => trimmed="${room}"`);
     if (!room) return;
     socket.join(room);
     socket.data.room = room;
 
-    // reuse newUser logic but scoped to the room and store in roomUsers
     let uid: string;
-    let name: string | undefined;
 
     if (!userPayload) {
       uid = socket.id;
-      name = undefined;
     } else if (typeof userPayload === "string") {
       uid = userPayload;
-      name = userPayload;
     } else if (typeof userPayload === "object" && userPayload !== null) {
       uid = String(userPayload.uid ?? userPayload.userId ?? userPayload.id ?? "");
-      name = (userPayload.name ?? userPayload.displayName ?? userPayload.userName ?? undefined) as string | undefined;
       if (!uid && name) uid = name;
     } else {
       uid = String(userPayload);
-      name = undefined;
     }
     if (!uid) uid = socket.id;
 
     const users = roomUsers[room] ?? [];
     const existingIdx = users.findIndex(u => u.socketId === socket.id);
     if (existingIdx !== -1) {
-      users[existingIdx] = { socketId: socket.id, userId: uid, name };
+      users[existingIdx] = { socketId: socket.id, userId: uid};
     } else {
-      users.push({ socketId: socket.id, userId: uid, name });
+      users.push({ socketId: socket.id, userId: uid});
     }
     roomUsers[room] = users;
 
     // store user info on socket for later reference
     socket.data.userId = uid;
-    socket.data.name = name;
 
     io.to(room).emit("usersOnline", roomUsers[room]);
-    console.log(`Socket ${socket.id} joined room ${room} as ${uid}`);
+    //console.log(`Socket ${socket.id} joined room ${room} as ${uid}`);
   });
 
-  // optional: leave room explicitly
+  // leave specific meeting room
   socket.on("leaveRoom", (roomRaw: any) => {
     const room = (roomRaw ?? "").toString().trim();
-    console.log(`leaveRoom received from socket ${socket.id} -> room="${roomRaw}" => trimmed="${room}"`);
+    //console.log(`leaveRoom received from socket ${socket.id} -> room="${roomRaw}" => trimmed="${room}"`);
     if (!room) return;
     socket.leave(room);
     const users = roomUsers[room] ?? [];
@@ -106,11 +100,10 @@ io.on("connection", (socket: Socket) => {
     io.to(room).emit("usersOnline", roomUsers[room]);
     delete socket.data.room;
     delete socket.data.userId;
-    delete socket.data.name;
-    console.log(`Socket ${socket.id} left room ${room}`);
+    //console.log(`Socket ${socket.id} left room ${room}`);
   });
 
-  // chat message now emitted to room the socket joined (or payload.room)
+  // handle incoming chat messages
   socket.on("chat:message", (payload: ChatMessagePayload & { room?: string }) => {
     const trimmedMessage = (payload?.message ?? "").toString().trim();
     if (!trimmedMessage) return;
@@ -128,16 +121,16 @@ io.on("connection", (socket: Socket) => {
 
     const outgoingMessage = {
       userId: payload.userId ?? sender?.userId ?? socket.id,
-      name: sender?.name ?? payload?.name ?? payload?.displayName ?? undefined,
       message: trimmedMessage,
       timestamp: payload.timestamp ?? new Date().toISOString(),
       clientId: payload.clientId ?? undefined
     };
 
     io.to(room).emit("chat:message", outgoingMessage);
-    console.log(`Relayed chat message to room ${room} from:`, outgoingMessage.userId);
+    //console.log(`Relayed chat message to room ${room} from:`, outgoingMessage.userId);
   });
 
+  // handle disconnection
   socket.on("disconnect", () => {
     // remove from global onlineUsers
     onlineUsers = onlineUsers.filter(user => user.socketId !== socket.id);
@@ -151,15 +144,6 @@ io.on("connection", (socket: Socket) => {
     }
 
     io.emit("usersOnline", onlineUsers);
-    console.log("A user disconnected with id:", socket.id, "total online:", onlineUsers.length);
+    //console.log("A user disconnected with id:", socket.id, "total online:", onlineUsers.length);
   });
 });
-
-
-
-
-
-
-
-
-
